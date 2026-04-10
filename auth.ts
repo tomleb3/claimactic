@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// auth.ts — One-time local login to obtain a Steam refresh token.
+// auth.ts - One-time local login to obtain a Steam refresh token.
 //
 // Run once:  npm run auth
 //
@@ -66,7 +66,7 @@ function ghSetVariable(repo: string, name: string, value: string): void {
 
 async function main(): Promise<void> {
     console.log('╔══════════════════════════════════════════════════════════╗');
-    console.log('║               SteamYield — Setup                       ║');
+    console.log('║                    SteamYield - Setup                    ║');
     console.log('╚══════════════════════════════════════════════════════════╝\n');
 
     const username = await promptForInput('Steam username: ');

@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// SteamYield — Claims high-quality games that are temporarily 100% off
+// SteamYield - Claims high-quality games that are temporarily 100% off
 // ─────────────────────────────────────────────────────────────────────────────
 import SteamUser from 'steam-user';
 import readline from 'readline';
@@ -353,13 +353,13 @@ async function checkAndClaim(client: SteamUser, storeCtx: StoreClaimContext): Pr
             const { pass, reason } = evaluateGame(details, reviews);
 
             if (!pass) {
-                console.log(`  SKIP   ${details.name} — ${reason}`);
+                console.log(`  SKIP   ${details.name} - ${reason}`);
                 skipped++;
                 continue;
             }
 
             if (details.packages.length === 0) {
-                console.log(`  SKIP   ${details.name} — no packages`);
+                console.log(`  SKIP   ${details.name} - no packages`);
                 continue;
             }
 
@@ -372,7 +372,7 @@ async function checkAndClaim(client: SteamUser, storeCtx: StoreClaimContext): Pr
                 console.log(`  CLAIM  ${details.name} (${reviews!.positivePercent}% positive)`);
                 claimed++;
             } else {
-                console.log(`  FAIL   ${details.name} — ${result.error}`);
+                console.log(`  FAIL   ${details.name} - ${result.error}`);
             }
         } catch (err) {
             console.error(`  ERROR  App ${appId}: ${(err as Error).message}`);
@@ -420,13 +420,13 @@ async function main(): Promise<void> {
         console.log(`Logged in (${client.steamID})`);
     });
 
-    // ── Web session — gives us cookies needed for Store API claims ────────
+    // ── Web session - gives us cookies needed for Store API claims ────────
     let latestStoreCtx: StoreClaimContext | null = null;
     client.on('webSession', (sessionId: string, cookies: string[]) => {
         latestStoreCtx = { sessionId, cookies };
     });
 
-    // ── Ownership cache ready — now safe to check ownsApp and claim ──────
+    // ── Ownership cache ready - now safe to check ownsApp and claim ──────
     client.on('ownershipCached', async () => {
 
         if (!latestStoreCtx) {
