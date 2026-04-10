@@ -66,7 +66,7 @@ function ghSetVariable(repo: string, name: string, value: string): void {
 
 async function main(): Promise<void> {
     console.log('╔══════════════════════════════════════════════════════════╗');
-    console.log('║            Steam Auto-Claimer — Setup                  ║');
+    console.log('║               SteamYield — Setup                       ║');
     console.log('╚══════════════════════════════════════════════════════════╝\n');
 
     const username = await promptForInput('Steam username: ');

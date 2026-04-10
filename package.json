@@ -1,5 +1,5 @@
 {
-    "name": "steam-games-promotional-claimer",
+    "name": "steamyield",
     "version": "1.0.0",
     "description": "Automatically claims high-quality Steam games that are 100% off (Free to Keep)",
     "main": "index.ts",
@@ -10,11 +10,10 @@
     "keywords": [
         "steam",
         "free-games",
-        "auto-claimer"
+        "claimer"
     ],
     "license": "MIT",
     "dependencies": {
-        "rss-parser": "^3.13.0",
         "steam-user": "^5.2.0"
     },
     "devDependencies": {

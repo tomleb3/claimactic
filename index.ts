@@ -1,10 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Steam Auto-Claimer — Claims high-quality games that are temporarily 100% off
+// SteamYield — Claims high-quality games that are temporarily 100% off
 // ─────────────────────────────────────────────────────────────────────────────
 import SteamUser from 'steam-user';
-import RSSParser from 'rss-parser';
-import fs from 'fs';
-import path from 'path';
 import readline from 'readline';
 import https from 'https';
 import { IncomingMessage } from 'http';
@@ -31,6 +28,12 @@ interface AppDetails {
     readonly discountPercent: number;
     readonly finalPrice: number | null;
     readonly hasPriceInfo: boolean;
+    readonly packages: readonly number[];
+}
+
+interface StoreClaimContext {
+    readonly sessionId: string;
+    readonly cookies: string[];
 }
 
 interface AppReviews {
@@ -47,21 +50,10 @@ interface EvaluationResult {
 
 interface ClaimResult {
     readonly success: boolean;
+    readonly alreadyOwned?: boolean;
     readonly error?: string;
     readonly grantedPackages?: readonly number[];
     readonly grantedApps?: readonly number[];
-}
-
-interface ClaimedEntry {
-    readonly name: string;
-    readonly action: 'claimed' | 'skipped' | 'failed';
-    readonly reason?: string;
-    readonly error?: string;
-    readonly date: string;
-}
-
-interface ClaimedMap {
-    [appId: string]: ClaimedEntry;
 }
 
 const CONFIG: Config = {
@@ -74,14 +66,12 @@ const CONFIG: Config = {
     singleRun: process.env.SINGLE_RUN === 'true' || process.env.CI === 'true',
 };
 
-const CLAIMED_PATH: string = path.join(__dirname, 'claimed.json');
-
 // ─── Utility: HTTPS GET returning parsed JSON ───────────────────────────────
 
 function httpsGetJSON<T = unknown>(url: string): Promise<T> {
     return new Promise<T>((resolve, reject) => {
         const req = https.get(url, {
-            headers: { 'User-Agent': 'SteamAutoClaimerMVP/1.0' },
+            headers: { 'User-Agent': 'SteamYield/1.0' },
         }, (res: IncomingMessage) => {
             if (res.statusCode! >= 300 && res.statusCode! < 400 && res.headers.location) {
                 // Follow one redirect
@@ -109,46 +99,7 @@ function httpsGetJSON<T = unknown>(url: string): Promise<T> {
     });
 }
 
-// ─── Claimed-list persistence ───────────────────────────────────────────────
-
-function loadClaimed(): ClaimedMap {
-    try {
-        return JSON.parse(fs.readFileSync(CLAIMED_PATH, 'utf8')) as ClaimedMap;
-    } catch {
-        return {};
-    }
-}
-
-function saveClaimed(claimed: ClaimedMap): void {
-    fs.writeFileSync(CLAIMED_PATH, JSON.stringify(claimed, null, 2));
-}
-
-// ─── Data Source 1: SteamDB "Free Promotions" RSS ───────────────────────────
-// SteamDB publishes an RSS feed of games with 100 % discounts.
-// This may return a 403 if SteamDB blocks automated requests — that's fine,
-// we fall back to the Steam Store search below.
-
-async function fetchFromSteamDBRSS(): Promise<GameCandidate[]> {
-    const parser = new RSSParser({
-        headers: { 'User-Agent': 'SteamAutoClaimerMVP/1.0' },
-        timeout: 15_000,
-    });
-    const feed = await parser.parseURL('https://steamdb.info/sales/rss/');
-    const results: GameCandidate[] = [];
-
-    for (const item of feed.items) {
-        const match = item.link?.match(/\/app\/(\d+)/);
-        if (match) {
-            results.push({
-                appId: parseInt(match[1], 10),
-                name: item.title || `App ${match[1]}`,
-            });
-        }
-    }
-    return results;
-}
-
-// ─── Data Source 2: Steam Store search for free specials ────────────────────
+// ─── Data Source: Steam Store search for free specials ──────────────────────
 // Uses the undocumented JSON search endpoint. category1=998 = Games only.
 // specials=1 = currently on sale.  maxprice=free = price is $0 right now.
 
@@ -175,36 +126,12 @@ async function fetchFromSteamStoreSearch(): Promise<GameCandidate[]> {
     return results;
 }
 
-// ─── Combine both sources, deduplicate ──────────────────────────────────────
+// ─── Find free games ────────────────────────────────────────────────────────
 
 async function findFreeGames(): Promise<GameCandidate[]> {
-    const games: GameCandidate[] = [];
-
-    // Source 1: SteamDB RSS
-    try {
-        const rssGames = await fetchFromSteamDBRSS();
-        log('RSS', `Found ${rssGames.length} item(s) from SteamDB feed.`);
-        games.push(...rssGames);
-    } catch (err) {
-        log('RSS', `SteamDB feed unavailable (${(err as Error).message}). Using Steam Store only.`);
-    }
-
-    // Source 2: Steam Store search
-    try {
-        const storeGames = await fetchFromSteamStoreSearch();
-        log('STORE', `Found ${storeGames.length} item(s) from Steam Store search.`);
-        games.push(...storeGames);
-    } catch (err) {
-        log('STORE', `Steam Store search failed: ${(err as Error).message}`);
-    }
-
-    // Deduplicate by appId
-    const seen = new Set<number>();
-    return games.filter((g) => {
-        if (seen.has(g.appId)) return false;
-        seen.add(g.appId);
-        return true;
-    });
+    const games = await fetchFromSteamStoreSearch();
+    log('STORE', `Found ${games.length} candidate(s) from Steam Store.`);
+    return games;
 }
 
 // ─── Steam Store API: App details ───────────────────────────────────────────
@@ -217,6 +144,7 @@ interface AppDetailsAPIResponse {
             readonly name: string;
             readonly type: string;
             readonly is_free: boolean;
+            readonly packages?: readonly number[];
             readonly price_overview?: {
                 readonly discount_percent: number;
                 readonly final: number;
@@ -240,6 +168,7 @@ async function getAppDetails(appId: number): Promise<AppDetails | null> {
         discountPercent: d.price_overview?.discount_percent ?? 0,
         finalPrice: d.price_overview?.final ?? null,
         hasPriceInfo: d.price_overview != null,
+        packages: d.packages ?? [],
     };
 }
 
@@ -318,19 +247,61 @@ function evaluateGame(details: AppDetails, reviews: AppReviews | null): Evaluati
     };
 }
 
-// ─── Steam client: request a free license ───────────────────────────────────
+// ─── Steam Store: claim a free/promo license via HTTP POST ─────────────────
+// requestFreeLicense (CM protocol) only works for free-on-demand (F2P) games.
+// Promotional 100%-off games require a store "purchase" via the web API.
+// This POST mirrors what the Steam client does at checkout for $0 items.
 
-function requestFreeLicense(client: SteamUser, appId: number): Promise<ClaimResult> {
+function claimFreePackage(subId: number, ctx: StoreClaimContext): Promise<ClaimResult> {
     return new Promise<ClaimResult>((resolve) => {
-        client.requestFreeLicense([appId], (err: Error | null, grantedPackages: number[], grantedApps: number[]) => {
-            if (err) {
-                return resolve({ success: false, error: err.message });
-            }
-            if (grantedApps.length === 0 && grantedPackages.length === 0) {
-                return resolve({ success: false, error: 'Already owned or no license available' });
-            }
-            resolve({ success: true, grantedPackages, grantedApps });
+        const postData = new URLSearchParams({
+            action: 'add_to_cart',
+            sessionid: ctx.sessionId,
+            subid: String(subId),
+        }).toString();
+
+        const req = https.request(
+            {
+                hostname: 'store.steampowered.com',
+                path: '/freelicense/addfreelicense',
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Content-Length': String(Buffer.byteLength(postData)),
+                    Cookie: ctx.cookies.join('; '),
+                    'User-Agent': 'SteamYield/1.0',
+                },
+            },
+            (res: IncomingMessage) => {
+                let body = '';
+                res.on('data', (chunk: string) => (body += chunk));
+                res.on('end', () => {
+                    const errorMatch = body.match(/<span class="error">([^<]+)<\/span>/);
+                    if (errorMatch) {
+                        return resolve({ success: false, error: errorMatch[1].trim() });
+                    }
+
+                    if (body.includes('<h2>Success!</h2>')) {
+                        return resolve({ success: true, grantedPackages: [subId], grantedApps: [] });
+                    }
+
+                    // A redirect or clean page without error often means already owned
+                    if (res.statusCode! >= 300 && res.statusCode! < 400) {
+                        return resolve({ success: true, alreadyOwned: true });
+                    }
+
+                    resolve({ success: false, error: `Unexpected response (HTTP ${res.statusCode})` });
+                });
+            },
+        );
+
+        req.on('error', (err: Error) => resolve({ success: false, error: err.message }));
+        req.setTimeout(15_000, () => {
+            req.destroy();
+            resolve({ success: false, error: 'Request timeout' });
         });
+        req.write(postData);
+        req.end();
     });
 }
 
@@ -356,14 +327,12 @@ function sleep(ms: number): Promise<void> {
 
 // ─── Core loop ──────────────────────────────────────────────────────────────
 
-async function checkAndClaim(client: SteamUser): Promise<void> {
+async function checkAndClaim(client: SteamUser, storeCtx: StoreClaimContext): Promise<void> {
     console.log(
         `\n${'─'.repeat(60)}\n` +
         `  ${new Date().toISOString()} — Checking for free games…\n` +
         `${'─'.repeat(60)}`
     );
-
-    const claimed: ClaimedMap = loadClaimed();
 
     let candidates: GameCandidate[];
     try {
@@ -380,11 +349,11 @@ async function checkAndClaim(client: SteamUser): Promise<void> {
 
     console.log(`  ${candidates.length} candidate(s) found. Evaluating…\n`);
 
+    let claimed = 0;
+    let skipped = 0;
+
     for (const game of candidates) {
         const { appId } = game;
-
-        // Skip games we already processed (claimed or skipped)
-        if (claimed[appId]) continue;
 
         // Respectful delay between Steam API calls (avoid rate-limiting)
         await sleep(1500);
@@ -397,52 +366,49 @@ async function checkAndClaim(client: SteamUser): Promise<void> {
                 continue;
             }
 
-            // 2. Fetch reviews
+            // 2. Check if already owned via Steam client
+            if (client.ownsApp(appId)) {
+                log('OWNED', `${details.name} (${appId}) — already in library, skipping`);
+                continue;
+            }
+
+            // 3. Fetch reviews
             const reviews = await getAppReviews(appId);
 
-            // 3. Evaluate against quality filter
+            // 4. Evaluate against quality filter
             const { pass, reason } = evaluateGame(details, reviews);
 
             if (!pass) {
                 log('SKIP', `${details.name} (${appId}): ${reason}`);
-                claimed[appId] = {
-                    name: details.name,
-                    action: 'skipped',
-                    reason,
-                    date: new Date().toISOString(),
-                };
-                saveClaimed(claimed);
+                skipped++;
                 continue;
             }
 
-            // 4. Claim!
+            // 5. Claim!
             log('CLAIM', `${details.name} (${appId}) — ${reason}`);
-            const result = await requestFreeLicense(client, appId);
 
-            if (result.success) {
+            if (details.packages.length === 0) {
+                log('SKIP', `${details.name} (${appId}): No packages found — cannot claim`);
+                continue;
+            }
+
+            const subId = details.packages[0];
+            const result = await claimFreePackage(subId, storeCtx);
+
+            if (result.success && result.alreadyOwned) {
+                log('OWNED', `${details.name} (${appId}) — already in library`);
+            } else if (result.success) {
                 console.log(`    ✓ Claimed "${details.name}" (Rating: ${reviews!.positivePercent}%)`);
-                claimed[appId] = {
-                    name: details.name,
-                    action: 'claimed',
-                    reason,
-                    date: new Date().toISOString(),
-                };
+                claimed++;
             } else {
                 console.log(`    ✗ Could not claim "${details.name}": ${result.error}`);
-                claimed[appId] = {
-                    name: details.name,
-                    action: 'failed',
-                    error: result.error,
-                    date: new Date().toISOString(),
-                };
             }
-            saveClaimed(claimed);
         } catch (err) {
             console.error(`  [ERR] App ${appId}: ${(err as Error).message}`);
         }
     }
 
-    console.log(`\n  Cycle complete. Next check in ${CONFIG.pollIntervalMs / 60_000} minutes.`);
+    console.log(`\n  Cycle complete. Claimed: ${claimed}, Skipped: ${skipped}.`);
 }
 
 // ─── Entry point ────────────────────────────────────────────────────────────
@@ -460,14 +426,14 @@ async function main(): Promise<void> {
     }
 
     console.log('╔══════════════════════════════════════════════════════════╗');
-    console.log('║          Steam Auto-Claimer (Quality Filter)           ║');
+    console.log('║                        SteamYield                        ║');
     console.log('╚══════════════════════════════════════════════════════════╝');
     console.log(`  Auth:        ${hasToken ? 'refresh token' : 'username/password'}`);
     console.log(`  Mode:        ${CONFIG.singleRun ? 'single run' : `poll every ${CONFIG.pollIntervalMs / 60_000} min`}`);
     console.log(`  Min reviews: ${CONFIG.minReviews}`);
     console.log(`  Min rating:  ${CONFIG.minPositivePct}%\n`);
 
-    const client = new SteamUser();
+    const client = new SteamUser({ enablePicsCache: true });
 
     // ── Handle Steam Guard 2FA (only relevant for username/password login) ──
     if (!hasToken) {
@@ -481,18 +447,34 @@ async function main(): Promise<void> {
     }
 
     // ── Connected ───────────────────────────────────────────────────────────
-    client.on('loggedOn', async () => {
-        console.log(`  Logged in successfully (SteamID: ${client.steamID}).\n`);
+    client.on('loggedOn', () => {
+        console.log(`  Logged in successfully (SteamID: ${client.steamID}).`);
+        console.log('  Waiting for web session…');
+    });
+
+    // ── Web session — gives us cookies needed for Store API claims ────────
+    let latestStoreCtx: StoreClaimContext | null = null;
+    client.on('webSession', (sessionId: string, cookies: string[]) => {
+        latestStoreCtx = { sessionId, cookies };
+        console.log('  Web session established.');
+    });
+
+    // ── Ownership cache ready — now safe to check ownsApp and claim ──────
+    client.on('ownershipCached', async () => {
+        console.log('  Ownership data cached.\n');
+
+        if (!latestStoreCtx) {
+            console.error('  Web session not yet available. Cannot proceed.');
+            return;
+        }
 
         if (CONFIG.singleRun) {
-            // CI mode: run once and exit
-            await checkAndClaim(client);
+            await checkAndClaim(client, latestStoreCtx);
             client.logOff();
             process.exit(0);
         } else {
-            // Local mode: run now, then poll on interval
-            checkAndClaim(client);
-            setInterval(() => checkAndClaim(client), CONFIG.pollIntervalMs);
+            checkAndClaim(client, latestStoreCtx);
+            setInterval(() => checkAndClaim(client, latestStoreCtx!), CONFIG.pollIntervalMs);
         }
     });
 
