@@ -1,0 +1,33 @@
+name: Steam Auto-Claimer
+
+on:
+  # Run every hour. Adjust with https://crontab.guru
+  schedule:
+    - cron: '0 * * * *'
+
+  # Allow triggering manually from the Actions tab
+  workflow_dispatch:
+
+jobs:
+  claim:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run claimer
+        env:
+          # Required — set in: Settings → Secrets and variables → Actions → Secrets
+          STEAM_REFRESH_TOKEN: ${{ secrets.STEAM_REFRESH_TOKEN }}
+
+          # Optional config — set in: Settings → Secrets and variables → Actions → Variables
+          MIN_REVIEWS: ${{ vars.MIN_REVIEWS }}
+          MIN_POSITIVE_PCT: ${{ vars.MIN_POSITIVE_PCT }}
+        run: npx ts-node index.ts

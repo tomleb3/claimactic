@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2025",
+    "module": "commonjs",
+    "types": [
+      "node"
+    ],
+    "noEmit": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true
+  },
+  "include": [
+    "index.ts",
+    "auth.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}

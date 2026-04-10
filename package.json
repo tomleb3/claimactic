@@ -1,0 +1,26 @@
+{
+    "name": "steam-games-promotional-claimer",
+    "version": "1.0.0",
+    "description": "Automatically claims high-quality Steam games that are 100% off (Free to Keep)",
+    "main": "index.ts",
+    "scripts": {
+        "start": "npx ts-node index.ts",
+        "auth": "npx ts-node auth.ts"
+    },
+    "keywords": [
+        "steam",
+        "free-games",
+        "auto-claimer"
+    ],
+    "license": "MIT",
+    "dependencies": {
+        "rss-parser": "^3.13.0",
+        "steam-user": "^5.2.0"
+    },
+    "devDependencies": {
+        "@types/node": "^25.6.0",
+        "@types/steam-user": "^5.1.1",
+        "ts-node": "^10.9.2",
+        "typescript": "^6.0.2"
+    }
+}
