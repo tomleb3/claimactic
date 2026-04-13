@@ -65,7 +65,7 @@ function ghSetVariable(repo: string, name: string, value: string): void {
 }
 
 async function main(): Promise<void> {
-    console.log('SteamYield setup\n');
+    console.log('claimactic setup\n');
 
     const username = await promptForInput('Steam username: ');
     const password = await promptForInput('Steam password: ', true);

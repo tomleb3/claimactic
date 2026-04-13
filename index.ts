@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// SteamYield - Claims high-quality games that are temporarily 100% off
+// claimactic - Claims high-quality games that are temporarily 100% off
 // ─────────────────────────────────────────────────────────────────────────────
 import SteamUser from 'steam-user';
 import https from 'https';
@@ -47,7 +47,7 @@ interface ClaimResult {
     readonly error?: string;
 }
 
-const USER_AGENT = 'SteamYield/1.0';
+const USER_AGENT = 'claimactic/1.0';
 
 const CONFIG: Config = {
     refreshToken: process.env.STEAM_REFRESH_TOKEN,
@@ -374,7 +374,7 @@ async function main(): Promise<void> {
     }
 
     console.log(
-        'SteamYield | refresh token | single run' +
+        'claimactic | refresh token | single run' +
         ` | ${CONFIG.minReviews}+ reviews, ${CONFIG.minPositivePct}%+ rating`
     );
 

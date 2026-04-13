@@ -1,4 +1,4 @@
-name: SteamYield
+name: claimactic
 
 on:
   # Run once a day at 3 AM UTC. Adjust with https://crontab.guru
@@ -22,7 +22,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run SteamYield
+      - name: Run claimactic
         env:
           # Required — set in: Settings → Secrets and variables → Actions → Secrets
           STEAM_REFRESH_TOKEN: ${{ secrets.STEAM_REFRESH_TOKEN }}
