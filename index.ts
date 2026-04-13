@@ -2,23 +2,17 @@
 // SteamYield - Claims high-quality games that are temporarily 100% off
 // ─────────────────────────────────────────────────────────────────────────────
 import SteamUser from 'steam-user';
-import readline from 'readline';
 import https from 'https';
 import { IncomingMessage } from 'http';
 
 interface Config {
     readonly refreshToken: string | undefined;
-    readonly username: string | undefined;
-    readonly password: string | undefined;
     readonly minReviews: number;
     readonly minPositivePct: number;
-    readonly pollIntervalMs: number;
-    readonly singleRun: boolean;
 }
 
 interface GameCandidate {
     readonly appId: number;
-    readonly name?: string;
 }
 
 interface AppDetails {
@@ -26,7 +20,6 @@ interface AppDetails {
     readonly type: string;
     readonly isFree: boolean;
     readonly discountPercent: number;
-    readonly finalPrice: number | null;
     readonly hasPriceInfo: boolean;
     readonly packages: readonly number[];
 }
@@ -52,18 +45,14 @@ interface ClaimResult {
     readonly success: boolean;
     readonly alreadyOwned?: boolean;
     readonly error?: string;
-    readonly grantedPackages?: readonly number[];
-    readonly grantedApps?: readonly number[];
 }
+
+const USER_AGENT = 'SteamYield/1.0';
 
 const CONFIG: Config = {
     refreshToken: process.env.STEAM_REFRESH_TOKEN,
-    username: process.env.STEAM_USERNAME,
-    password: process.env.STEAM_PASSWORD,
     minReviews: parseInt(process.env.MIN_REVIEWS ?? '', 10) || 500,
     minPositivePct: parseInt(process.env.MIN_POSITIVE_PCT ?? '', 10) || 70,
-    pollIntervalMs: (parseInt(process.env.POLL_INTERVAL_MINUTES ?? '', 10) || 60) * 60 * 1000,
-    singleRun: process.env.SINGLE_RUN === 'true' || process.env.CI === 'true',
 };
 
 // ─── Utility: HTTPS GET returning parsed JSON ───────────────────────────────
@@ -71,7 +60,7 @@ const CONFIG: Config = {
 function httpsGetJSON<T = unknown>(url: string): Promise<T> {
     return new Promise<T>((resolve, reject) => {
         const req = https.get(url, {
-            headers: { 'User-Agent': 'SteamYield/1.0' },
+            headers: { 'User-Agent': USER_AGENT },
         }, (res: IncomingMessage) => {
             if (res.statusCode! >= 300 && res.statusCode! < 400 && res.headers.location) {
                 // Follow one redirect
@@ -158,7 +147,6 @@ async function getAppDetails(appId: number): Promise<AppDetails | null> {
         type: d.type,
         isFree: d.is_free === true,
         discountPercent: d.price_overview?.discount_percent ?? 0,
-        finalPrice: d.price_overview?.final ?? null,
         hasPriceInfo: d.price_overview != null,
         packages: d.packages ?? [],
     };
@@ -261,7 +249,7 @@ function claimFreePackage(subId: number, ctx: StoreClaimContext): Promise<ClaimR
                     'Content-Type': 'application/x-www-form-urlencoded',
                     'Content-Length': String(Buffer.byteLength(postData)),
                     Cookie: ctx.cookies.join('; '),
-                    'User-Agent': 'SteamYield/1.0',
+                    'User-Agent': USER_AGENT,
                 },
             },
             (res: IncomingMessage) => {
@@ -274,7 +262,7 @@ function claimFreePackage(subId: number, ctx: StoreClaimContext): Promise<ClaimR
                     }
 
                     if (body.includes('<h2>Success!</h2>')) {
-                        return resolve({ success: true, grantedPackages: [subId], grantedApps: [] });
+                        return resolve({ success: true });
                     }
 
                     // A redirect or clean page without error often means already owned
@@ -298,16 +286,6 @@ function claimFreePackage(subId: number, ctx: StoreClaimContext): Promise<ClaimR
 }
 
 // ─── Console helpers ────────────────────────────────────────────────────────
-
-function promptForInput(message: string): Promise<string> {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    return new Promise<string>((resolve) => {
-        rl.question(message, (answer: string) => {
-            rl.close();
-            resolve(answer.trim());
-        });
-    });
-}
 
 function sleep(ms: number): Promise<void> {
     return new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -385,35 +363,22 @@ async function checkAndClaim(client: SteamUser, storeCtx: StoreClaimContext): Pr
 // ─── Entry point ────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-    const hasToken = !!CONFIG.refreshToken;
-    const hasCredentials = !!CONFIG.username && !!CONFIG.password;
+    const refreshToken = CONFIG.refreshToken;
 
-    if (!hasToken && !hasCredentials) {
+    if (!refreshToken) {
         console.error(
-            'ERROR: Set STEAM_REFRESH_TOKEN, or both STEAM_USERNAME and STEAM_PASSWORD.\n' +
+            'ERROR: Set STEAM_REFRESH_TOKEN.\n' +
             'Run "npm run auth" to obtain a refresh token.'
         );
         process.exit(1);
     }
 
     console.log(
-        `SteamYield | ${hasToken ? 'token' : 'password'} auth` +
-        ` | ${CONFIG.singleRun ? 'single run' : `every ${CONFIG.pollIntervalMs / 60_000}m`}` +
+        'SteamYield | refresh token | single run' +
         ` | ${CONFIG.minReviews}+ reviews, ${CONFIG.minPositivePct}%+ rating`
     );
 
     const client = new SteamUser({ enablePicsCache: true });
-
-    // ── Handle Steam Guard 2FA (only relevant for username/password login) ──
-    if (!hasToken) {
-        client.on('steamGuard', async (domain: string | null, callback: (code: string) => void) => {
-            const source = domain
-                ? `your email at ${domain}`
-                : 'your Steam Mobile Authenticator';
-            const code = await promptForInput(`\n  Enter Steam Guard code from ${source}: `);
-            callback(code);
-        });
-    }
 
     // ── Connected ───────────────────────────────────────────────────────────
     client.on('loggedOn', () => {
@@ -426,22 +391,16 @@ async function main(): Promise<void> {
         latestStoreCtx = { sessionId, cookies };
     });
 
-    // ── Ownership cache ready - now safe to check ownsApp and claim ──────
+    // ── Ownership cache ready - now safe to check ownsApp and claim ───────
     client.on('ownershipCached', async () => {
-
         if (!latestStoreCtx) {
             console.error('Web session not available.');
             return;
         }
 
-        if (CONFIG.singleRun) {
-            await checkAndClaim(client, latestStoreCtx);
-            client.logOff();
-            process.exit(0);
-        } else {
-            checkAndClaim(client, latestStoreCtx);
-            setInterval(() => checkAndClaim(client, latestStoreCtx!), CONFIG.pollIntervalMs);
-        }
+        await checkAndClaim(client, latestStoreCtx);
+        client.logOff();
+        process.exit(0);
     });
 
     // ── Handle errors ───────────────────────────────────────────────────────
@@ -456,11 +415,7 @@ async function main(): Promise<void> {
     });
 
     // ── Log in ──────────────────────────────────────────────────────────────
-    if (hasToken) {
-        client.logOn({ refreshToken: CONFIG.refreshToken! });
-    } else {
-        client.logOn({ accountName: CONFIG.username!, password: CONFIG.password! });
-    }
+    client.logOn({ refreshToken });
 }
 
 main();

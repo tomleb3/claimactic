@@ -9,11 +9,12 @@
 
 ## Architecture
 
-- `index.ts`: Main claimer (discovery, evaluation, claiming, scheduling)
+- `index.ts`: Main claimer (discovery, evaluation, claiming)
 - `auth.ts`: One-time interactive setup (login, refresh token, GitHub secrets)
 - Only runtime dependency: `steam-user`. All HTTP via native `https` module.
 - Ownership checks via PICS cache (`client.ownsApp()`), not file-based tracking.
 - Promotional game claiming via HTTPS POST to Steam Store, not `requestFreeLicense`.
+- Scheduling is handled by the GitHub Actions workflow, not by `index.ts`.
 
 ## Build and Test
 

@@ -65,9 +65,7 @@ function ghSetVariable(repo: string, name: string, value: string): void {
 }
 
 async function main(): Promise<void> {
-    console.log('╔══════════════════════════════════════════════════════════╗');
-    console.log('║                    SteamYield - Setup                    ║');
-    console.log('╚══════════════════════════════════════════════════════════╝\n');
+    console.log('SteamYield setup\n');
 
     const username = await promptForInput('Steam username: ');
     const password = await promptForInput('Steam password: ', true);
