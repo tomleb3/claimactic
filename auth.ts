@@ -117,7 +117,7 @@ async function main(): Promise<void> {
         if (minRating) ghSetVariable(repo, 'MIN_POSITIVE_PCT', minRating);
 
         console.log('\n  Done! The GitHub Actions workflow will use these values.');
-        console.log('  Trigger it manually:  gh workflow run claim.yml\n');
+        console.log(`  Trigger it manually:  gh workflow run claim.yml -R ${repo}\n`);
 
         client.logOff();
         process.exit(0);
