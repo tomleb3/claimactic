@@ -5,9 +5,9 @@ Automatically claims high-quality Steam games that are temporarily 100% off and 
 ## Use This Template
 
 1. Click **Use this template** and create your own repo.
-2. If you want your run history and cron runs private, make that new repo **private**.
+2. If you want your run history and cron runs private, make that repo **private**.
 
-The public template stays manual-only. Add scheduled runs only in the repo that should own the run history.
+The source/template repo stays manual-only. Add scheduled runs only in the repo that should own the run history.
 
 ## Setup
 
@@ -28,7 +28,7 @@ npm run auth
 
 ## Schedule
 
-If you want automatic runs, uncomment the `schedule` block in `.github/workflows/claim.yml` in your runtime repo and set your cron.
+If you want automatic runs, uncomment the `schedule` block in `.github/workflows/claim.yml` in your repo and set your cron.
 
 Example:
 
@@ -38,6 +38,21 @@ schedule:
 ```
 
 If the repo running the workflow is public, its Actions history is public too.
+
+## Optional: Keep Your Repo Updated
+
+Repos created from a template are standalone, so GitHub's **Sync fork** button does not apply.
+
+To pull future changes from your actual template/source repo, add it as a remote and merge from it:
+
+```bash
+git remote add template https://github.com/<owner>/claimactic.git
+git fetch template
+git merge template/<default-branch>
+git push origin HEAD
+```
+
+If the template/source repo changes `.github/workflows/claim.yml`, make sure the `schedule` block is still uncommented in your repo.
 
 ## Commands
 

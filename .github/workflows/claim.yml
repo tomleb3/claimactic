@@ -1,7 +1,7 @@
 name: claimactic
 
 on:
-  # Uncomment this block in your own runtime repo if you want automated runs.
+  # Uncomment this block in the repo created from this template if you want automated runs.
   # schedule:
   #   - cron: '0 3 * * *'
 
